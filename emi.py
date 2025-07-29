@@ -1,3 +1,8 @@
+# Línea 1: Versión del software
+__version__ = "1.0.0"
+
+
+# imports
 import tkinter as tk
 from tkinter import messagebox, ttk
 import urllib3
@@ -9,6 +14,33 @@ from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from cryptography.hazmat.primitives.serialization.pkcs12 import load_key_and_certificates
 from cryptography.hazmat.backends import default_backend
+
+import requests
+
+
+# === Validar Version  ===
+
+def verificar_actualizacion():
+    url_version = "https://github.com/adfonsecad/emi-app/blob/main/version.txt"
+    url_archivo = "https://github.com/adfonsecad/emi-app/blob/main/emi.py"
+
+    try:
+        version_remota = requests.get(url_version).text.strip()
+        if version_remota > __version__:
+            respuesta = messagebox.askyesno(
+                "Actualización disponible",
+                f"Hay una nueva versión ({version_remota}). ¿Deseas descargarla?"
+            )
+            if respuesta:
+                nuevo_codigo = requests.get(url_archivo).text
+                with open("emi_actualizado.py", "w", encoding="utf-8") as f:
+                    f.write(nuevo_codigo)
+                messagebox.showinfo("Actualizado", "Se descargó la nueva versión como 'emi_actualizado.py'.")
+        else:
+            messagebox.showinfo("Sin actualizaciones", "Ya tienes la última versión.")
+    except Exception as e:
+        messagebox.showerror("Error", f"No se pudo verificar la actualización:\n{e}")
+
 
 # === DESACTIVA ADVERTENCIAS SSL SOLO EN DESARROLLO ===
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -211,7 +243,7 @@ class EditarClientes(tk.Toplevel):
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo guardar los datos: {e}")
 
-
+# === Gestionar Lineas ===
 class GestionLineas(tk.Toplevel):
     def __init__(self, master, tipo_documento):
         super().__init__(master)
@@ -237,6 +269,7 @@ class GestionLineas(tk.Toplevel):
         self.tipo_cambio_var = tk.StringVar(value="No disponible")
         self.tipo_cambio_entry = tk.Entry(frame_gen, textvariable=self.tipo_cambio_var, width=15)
         self.tipo_cambio_entry.grid(row=0, column=5, sticky='w')
+
 
         # --- CLIENTE ---
         frame_cliente = tk.LabelFrame(self, text="Datos del Cliente")
@@ -435,11 +468,26 @@ class App(tk.Tk):
         self.empresa = usuario_info.get("company", "")
         self.permisos = usuario_info.get("Permisos", [])
 
+        # Título general
         tk.Label(self, text="emi - Creación de Documentos", font=("Arial", 16)).pack(pady=10)
-        tk.Label(self, text=f"Usuario activo: {self.usuario}", font=("Arial", 10)).pack()
-        tk.Label(self, text=f"Correo: {self.email}", font=("Arial", 10)).pack()
-        tk.Label(self, text=f"Empresa: {self.empresa}", font=("Arial", 10)).pack(pady=5)
 
+        # Frame para usuario, correo, empresa y botón actualización
+        frame_usuario = tk.Frame(self)
+        frame_usuario.pack(fill="x", padx=10)
+
+        # Frame izquierdo para etiquetas (usuario, correo, empresa)
+        frame_info = tk.Frame(frame_usuario)
+        frame_info.pack(side="left", anchor="w")
+
+        tk.Label(frame_info, text=f"Usuario activo: {self.usuario}", font=("Arial", 10)).pack(anchor="w")
+        tk.Label(frame_info, text=f"Correo: {self.email}", font=("Arial", 10)).pack(anchor="w")
+        tk.Label(frame_info, text=f"Empresa: {self.empresa}", font=("Arial", 10)).pack(anchor="w", pady=(0,5))
+
+        # Botón actualización a la derecha
+        btn_actualizar = tk.Button(frame_usuario, text="Buscar actualizaciones", command=verificar_actualizacion)
+        btn_actualizar.pack(side="right")
+
+        # El resto del código sigue igual
         for nombre, codigo in TIPOS_DOCUMENTO.items():
             if nombre in self.permisos:
                 btn = tk.Button(self, text=nombre, width=30,
@@ -451,11 +499,6 @@ class App(tk.Tk):
                                     command=self.abrir_editar_clientes)
             btn_cliente.pack(pady=5)
 
-    def abrir_gestion_lineas(self, tipo_documento):
-        GestionLineas(self, tipo_documento)
-
-    def abrir_editar_clientes(self):
-        EditarClientes(self)
 
 # === TIPOS DE DOCUMENTO ===
 TIPOS_DOCUMENTO = {
