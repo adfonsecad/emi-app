@@ -1,8 +1,9 @@
 # Línea 1: Versión del software
-__version__ = "1.0.0"
-
+__version__ = "1.0.1"
 
 # imports
+
+
 import tkinter as tk
 from tkinter import messagebox, ttk
 import urllib3
@@ -15,26 +16,49 @@ from googleapiclient.discovery import build
 from cryptography.hazmat.primitives.serialization.pkcs12 import load_key_and_certificates
 from cryptography.hazmat.backends import default_backend
 
+from packaging import version
 import requests
+from tkinter import messagebox
+import sys
+import os
+from cryptography.hazmat.primitives.serialization.pkcs12 import load_key_and_certificates
+from cryptography.hazmat.backends import default_backend
 
+def ruta_recurso(nombre_archivo):
+    """Devuelve la ruta correcta del archivo, compatible con PyInstaller."""
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, nombre_archivo)
+    return os.path.join(os.path.abspath("."), nombre_archivo)
 
 # === Validar Version  ===
 
 def verificar_actualizacion():
-    url_version = "https://github.com/adfonsecad/emi-app/blob/main/version.txt"
-    url_archivo = "https://github.com/adfonsecad/emi-app/blob/main/emi.py"
-
+    url_version = "https://raw.githubusercontent.com/adfonsecad/emi-app/main/version.txt"
+    url_archivo = "https://raw.githubusercontent.com/adfonsecad/emi-app/main/emi.py"
+    
     try:
-        version_remota = requests.get(url_version).text.strip()
-        if version_remota > __version__:
+        version_remota = requests.get(url_version, timeout=5).text.strip()
+        version_local = __version__.strip()
+        
+        if version.parse(version_remota) > version.parse(version_local):
             respuesta = messagebox.askyesno(
                 "Actualización disponible",
                 f"Hay una nueva versión ({version_remota}). ¿Deseas descargarla?"
             )
             if respuesta:
-                nuevo_codigo = requests.get(url_archivo).text
+                nuevo_codigo = requests.get(url_archivo, timeout=10).text
+
+                # Reemplazar la línea de versión en el nuevo código
+                lineas = nuevo_codigo.splitlines()
+                for i, linea in enumerate(lineas):
+                    if linea.startswith("__version__"):
+                        lineas[i] = f'__version__ = "{version_remota}"'
+                        break
+                nuevo_codigo_actualizado = "\n".join(lineas)
+
                 with open("emi_actualizado.py", "w", encoding="utf-8") as f:
-                    f.write(nuevo_codigo)
+                    f.write(nuevo_codigo_actualizado)
+
                 messagebox.showinfo("Actualizado", "Se descargó la nueva versión como 'emi_actualizado.py'.")
         else:
             messagebox.showinfo("Sin actualizaciones", "Ya tienes la última versión.")
@@ -43,15 +67,24 @@ def verificar_actualizacion():
 
 
 # === DESACTIVA ADVERTENCIAS SSL SOLO EN DESARROLLO ===
+import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # === GOOGLE SHEETS CONFIGURACIÓN ===
-ARCHIVO_CREDENCIALES = 'credenciales.json'
+from google.oauth2.service_account import Credentials
+from googleapiclient.discovery import build
+
 SPREADSHEET_ID = '1tZmLipOF8I_QPkNbWMwhfUEtf-fq2vJ6wLZ9sEKPVqU'
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
-credenciales = Credentials.from_service_account_file(ARCHIVO_CREDENCIALES, scopes=SCOPES)
+
+# Usar ruta_recurso para acceder al archivo JSON
+ruta_json = ruta_recurso("credenciales.json")
+
+# Cargar credenciales y construir el servicio
+credenciales = Credentials.from_service_account_file(ruta_json, scopes=SCOPES)
 servicio = build('sheets', 'v4', credentials=credenciales)
 hoja = servicio.spreadsheets()
+
 
 # === FUNCIÓN PARA OBTENER USUARIOS DESDE GOOGLE SHEETS ===
 def obtener_usuarios():
@@ -138,14 +171,14 @@ def obtener_productos():
         return []
 
 # === CERTIFICADO P12 ===
-def cargar_certificado_p12(nombre_archivo_p12, clave):
-    ruta_actual = os.path.dirname(os.path.abspath(__file__))
-    ruta_completa = os.path.join(ruta_actual, nombre_archivo_p12)
 
-    with open(ruta_completa, 'rb') as archivo:
-        contenido_p12 = archivo.read()
+def cargar_certificado_p12(nombre_archivo_p12, clave):
+    ruta_completa = ruta_recurso(nombre_archivo_p12)
 
     try:
+        with open(ruta_completa, 'rb') as archivo:
+            contenido_p12 = archivo.read()
+
         private_key, cert, additional_certs = load_key_and_certificates(
             contenido_p12,
             password=clave.encode(),
@@ -157,7 +190,9 @@ def cargar_certificado_p12(nombre_archivo_p12, clave):
         print(f"❌ Error al cargar el certificado: {e}")
         return None, None
 
+# Llamada a la función
 cert, key = cargar_certificado_p12("030495001321.p12", "1987")
+
 
 # === Clase para editar clientes ===
 class EditarClientes(tk.Toplevel):
@@ -457,6 +492,7 @@ class LoginVentana(tk.Tk):
         messagebox.showerror("Acceso denegado", "Usuario o contraseña incorrectos.")
 
 # === APP PRINCIPAL ===
+
 class App(tk.Tk):
     def __init__(self, usuario_info):
         super().__init__()
@@ -475,7 +511,7 @@ class App(tk.Tk):
         frame_usuario = tk.Frame(self)
         frame_usuario.pack(fill="x", padx=10)
 
-        # Frame izquierdo para etiquetas (usuario, correo, empresa)
+        # Frame izquierdo para etiquetas
         frame_info = tk.Frame(frame_usuario)
         frame_info.pack(side="left", anchor="w")
 
@@ -483,22 +519,29 @@ class App(tk.Tk):
         tk.Label(frame_info, text=f"Correo: {self.email}", font=("Arial", 10)).pack(anchor="w")
         tk.Label(frame_info, text=f"Empresa: {self.empresa}", font=("Arial", 10)).pack(anchor="w", pady=(0,5))
 
-        # Botón actualización a la derecha
+        # Botón de actualización a la derecha
         btn_actualizar = tk.Button(frame_usuario, text="Buscar actualizaciones", command=verificar_actualizacion)
         btn_actualizar.pack(side="right")
 
-        # El resto del código sigue igual
+        # Botones de documentos
         for nombre, codigo in TIPOS_DOCUMENTO.items():
             if nombre in self.permisos:
                 btn = tk.Button(self, text=nombre, width=30,
                                 command=lambda c=codigo: self.abrir_gestion_lineas(c))
                 btn.pack(pady=5)
 
+        # Botón de clientes
         if "Datos Cliente y Resumen" in self.permisos:
             btn_cliente = tk.Button(self, text="Datos Cliente y Resumen", width=30,
                                     command=self.abrir_editar_clientes)
             btn_cliente.pack(pady=5)
 
+    # ✅ Estos métodos deben estar dentro de la clase
+    def abrir_gestion_lineas(self, tipo_documento):
+        GestionLineas(self, tipo_documento)
+
+    def abrir_editar_clientes(self):
+        EditarClientes(self)
 
 # === TIPOS DE DOCUMENTO ===
 TIPOS_DOCUMENTO = {
